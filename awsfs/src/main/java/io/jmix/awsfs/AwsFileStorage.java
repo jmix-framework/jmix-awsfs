@@ -192,27 +192,29 @@ public class AwsFileStorage implements FileStorage {
     @Override
     public FileRef saveStream(String fileName, InputStream inputStream) {
         String fileKey = createFileKey(fileName);
-        S3Client s3Client = s3ClientReference.get();
-        int chunkSizeBytes = this.chunkSize * 1024;
-
-        try (BufferedInputStream bos = new BufferedInputStream(inputStream, chunkSizeBytes)){
-            int totalBytes = bos.available();
-            if (totalBytes == 0) {
+        int s3ChunkSizeBytes = this.chunkSize * 1024;
+        try (BufferedInputStream bos = new BufferedInputStream(inputStream, s3ChunkSizeBytes)) {
+            S3Client s3Client = s3ClientReference.get();
+            int totalSizeBytes = bos.available();
+            if (totalSizeBytes == 0) {
                 s3Client.putObject(PutObjectRequest.builder()
                         .bucket(bucket)
                         .key(fileKey)
                         .build(), RequestBody.empty());
                 return new FileRef(getStorageName(), fileKey, fileName);
             }
-            byte[] chunkBytes = new byte[chunkSizeBytes];
+
             CreateMultipartUploadRequest createMultipartUploadRequest = CreateMultipartUploadRequest.builder()
                     .bucket(bucket)
                     .key(fileKey)
                     .build();
             CreateMultipartUploadResponse response = s3Client.createMultipartUpload(createMultipartUploadRequest);
 
-            List<CompletedPart> completedParts = new ArrayList<>((int) Math.ceil((double) totalBytes / chunkSizeBytes));
-            for (int partNumber = 1; bos.read(chunkBytes) != -1; partNumber++) {
+            int partsTotal = (int) Math.ceil((double) totalSizeBytes / s3ChunkSizeBytes);
+            List<CompletedPart> completedParts = new ArrayList<>(partsTotal);
+            for (int partNumber = 1, readBytes = 0; readBytes != totalSizeBytes; partNumber++) {
+                byte[] chunkBytes = new byte[Math.min(totalSizeBytes - readBytes, s3ChunkSizeBytes)];
+                readBytes += bos.read(chunkBytes);
                 UploadPartRequest uploadPartRequest = UploadPartRequest.builder()
                         .bucket(bucket)
                         .key(fileKey)
@@ -227,7 +229,9 @@ public class AwsFileStorage implements FileStorage {
                 completedParts.add(part);
             }
 
-            CompletedMultipartUpload completedMultipartUpload = CompletedMultipartUpload.builder().parts(completedParts).build();
+            CompletedMultipartUpload completedMultipartUpload = CompletedMultipartUpload.builder()
+                    .parts(completedParts)
+                    .build();
             CompleteMultipartUploadRequest completeMultipartUploadRequest =
                     CompleteMultipartUploadRequest.builder()
                             .bucket(bucket)
