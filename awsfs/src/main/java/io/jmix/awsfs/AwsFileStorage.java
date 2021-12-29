@@ -210,8 +210,7 @@ public class AwsFileStorage implements FileStorage {
                     .build();
             CreateMultipartUploadResponse response = s3Client.createMultipartUpload(createMultipartUploadRequest);
 
-            int partsTotal = (int) Math.ceil((double) totalSizeBytes / s3ChunkSizeBytes);
-            List<CompletedPart> completedParts = new ArrayList<>(partsTotal);
+            List<CompletedPart> completedParts = new ArrayList<>();
             for (int partNumber = 1, readBytes = 0; readBytes != totalSizeBytes; partNumber++) {
                 byte[] chunkBytes = new byte[Math.min(totalSizeBytes - readBytes, s3ChunkSizeBytes)];
                 readBytes += bos.read(chunkBytes);
